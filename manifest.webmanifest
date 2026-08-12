@@ -1,0 +1,19 @@
+{
+  "name": "Học tiếng Trung · studywithmsnhung",
+  "short_name": "Ms Nhung",
+  "description": "30 bài Giáo trình chuẩn HSK1 và HSK2 (bản 2.0): từ vựng, bút thuận, flashcard, ngữ pháp, bài khoá và ôn tập ngắt quãng. Dùng được cả khi không có mạng.",
+  "lang": "vi",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FDF6F3",
+  "theme_color": "#8B1E28",
+  "categories": ["education"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
