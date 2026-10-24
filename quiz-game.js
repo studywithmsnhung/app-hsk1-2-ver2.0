@@ -16,6 +16,10 @@
 
   const { esc, el, shuffle } = UI;
 
+  /* Thời gian chờ trước khi tự chuyển câu (mili giây) */
+  const AUTO_OK = 1100;   // trả lời đúng
+  const AUTO_NO = 2600;   // trả lời sai — cần thời gian đọc đáp án đúng
+
   const XP_PER_CORRECT = 20;
   const XP_PER_LESSON = 80;
   const XP_MAX = 480;
@@ -63,6 +67,7 @@
     const srcLabel = opts.label || "bộ từ này";
     const TOTAL = calcTotal(V);
     let deck = [], i = 0, picked = null, isRight = false, combo = 1, right = 0, wrong = 0;
+    let autoTimer = null;
 
     function newDeck() {
       const pool = [];
@@ -111,7 +116,7 @@
 
       '<div class="qg-answers" id="qgAns"></div>' +
       '<div class="qg-fb" id="qgFb" aria-live="polite"></div>' +
-      '<button class="qg-next" id="qgNext" disabled>Tiếp tục →</button>' +
+      '<div class="qg-auto" id="qgAuto"><i></i></div>' +
       "</div></div>" +
 
       '<div class="qg-reward" id="qgReward"><div class="qg-reward-box">' +
@@ -147,7 +152,8 @@
 
     function draw() {
       picked = null; isRight = false;
-      q("qgNext").disabled = true;
+      clearTimeout(autoTimer);
+      q("qgAuto").classList.remove("on");
       clearFb();
       const c = deck[i];
       const t = q("qgTerm");
@@ -169,7 +175,6 @@
       if (picked) return;
       picked = ch;
       isRight = ch === card.correct;
-      q("qgNext").disabled = false;
 
       btn.classList.add(isRight ? "ok" : "no", isRight ? "qg-pop" : "qg-wiggle");
       const ans = q("qgAns");
@@ -190,6 +195,15 @@
         (isRight ? "" : '<p class="qg-fb-d">Đáp án đúng: <b>' + esc(card.correct) + "</b></p>") +
         '<p class="qg-fb-d zh">' + esc(card.term) + "</p>" +
         "</div></div>";
+
+      /* Tự chuyển sang câu tiếp theo — đúng thì đi nhanh, sai thì để lâu hơn
+         một chút cho học sinh kịp đọc đáp án đúng. */
+      const wait = isRight ? AUTO_OK : AUTO_NO;
+      const bar = q("qgAuto");
+      bar.style.setProperty("--dur", wait + "ms");
+      bar.classList.add("on");
+      clearTimeout(autoTimer);
+      autoTimer = setTimeout(next, wait);
     }
 
     function confetti() {
@@ -228,6 +242,8 @@
     }
 
     function next() {
+      clearTimeout(autoTimer);
+      q("qgAuto").classList.remove("on");
       if (!picked) return;
       if (isRight) { right++; combo++; addXp(XP_PER_CORRECT); paintXp(); }
       else wrong++;
@@ -241,6 +257,7 @@
     }
 
     function restart() {
+      clearTimeout(autoTimer);
       i = 0; combo = 1; right = 0; wrong = 0; picked = null;
       q("qgCombo").textContent = "Combo x1";
       q("qgReward").classList.remove("on");
@@ -248,9 +265,12 @@
       draw();
     }
 
-    q("qgNext").onclick = next;
     q("qgAgain").onclick = restart;
     q("qgClose").onclick = () => q("qgReward").classList.remove("on");
+    /* Không muốn chờ hết thanh thời gian thì bấm vào ô câu hỏi để đi tiếp ngay */
+    q("qgCard").onclick = () => { if (picked) next(); };
+    /* Rời khỏi TAB thì huỷ hẹn giờ, tránh nhảy câu khi không ai xem */
+    box.addEventListener("swmn:unmount", () => clearTimeout(autoTimer));
 
     paintXp();
     newDeck();

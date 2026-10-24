@@ -24,6 +24,10 @@
 
   function go(view) {
     if (window.LessonView) LessonView.close();
+    if (currentView === "viewBuddy" && view !== "viewBuddy") {
+      const b = document.getElementById("buddyBody");
+      if (b) b.dispatchEvent(new CustomEvent("swmn:unmount"));
+    }
     currentView = view;
     VIEWS.forEach((v) => { document.getElementById(v).hidden = v !== view; });
     document.querySelectorAll("#navbar button").forEach((b) =>
@@ -87,6 +91,7 @@
     const u = Store.getUser(uid);
     if (!u) return;
     me = u;
+    window.CurrentUser = u;      /* lesson-view.js cần biết ai đang học */
     Store.setCurrent(uid);
     settings = Store.getSettings(uid);
     SRS.load(uid);
@@ -102,6 +107,7 @@
     Track.flush();
     Track.stop();
     me = null;
+    window.CurrentUser = null;
     localStorage.removeItem(Store.keys.cur);
     renderNameScreen();
     showScreen("screenName");
@@ -397,23 +403,25 @@
       return w.hanzi.indexOf(s) >= 0 || w.q.indexOf(s) >= 0 || (sz && w.qz.indexOf(sz) >= 0);
     };
     let hit = all.filter((w) => (isZh ? w.hanzi.indexOf(term) >= 0 : match(w, nq)));
-    /* Gõ nhiều âm tiết mà không có từ nào khớp trọn → tìm từng âm tiết một
-       (vd "ni hao" ra cả 你 và 好). */
-    if (!hit.length && !isZh && /\s/.test(nq)) {
-      const seen = {};
-      nq.split(/\s+/).filter(Boolean).forEach((tk) => {
-        all.forEach((w) => {
-          if (!seen[w.key] && (w.q.split(/\s+/)[0] === tk || w.qz.indexOf(tk) === 0)) {
-            seen[w.key] = 1; hit.push(w);
-          }
-        });
-      });
-    }
     hit.sort((a, b) => {
       const sa = (isZh ? a.hanzi : Store.noTone(a.pinyin)).indexOf(isZh ? term : nq);
       const sb = (isZh ? b.hanzi : Store.noTone(b.pinyin)).indexOf(isZh ? term : nq);
       return (sa < 0 ? 9 : sa) - (sb < 0 ? 9 : sb) || a.hanzi.length - b.hanzi.length;
     });
+    /* Gõ nhiều âm tiết (vd "ni hao") thì ngoài từ khớp trọn, xếp thêm
+       các từ khớp từng âm tiết một ở phía sau. */
+    if (!isZh && /\s/.test(nq)) {
+      const seen = {};
+      hit.forEach((w) => (seen[w.key] = 1));
+      nq.split(/\s+/).filter(Boolean).forEach((tk) => {
+        all.forEach((w) => {
+          if (!seen[w.key] && (Store.noTone(w.pinyin).split(/\s+/)[0] === tk || w.qz.indexOf(tk) === 0)) {
+            seen[w.key] = 1;
+            hit.push(w);
+          }
+        });
+      });
+    }
     if (!hit.length) {
       box.innerHTML = '<div class="empty"><div class="empty-icon zh">查</div>' +
         "<h3>Không tìm thấy từ nào</h3><p>Thử gõ ít ký tự hơn, hoặc gõ nghĩa tiếng Việt nhé.</p></div>";
@@ -475,7 +483,7 @@
     const seg = $("#buddyCourses");
     seg.innerHTML = COURSES.map((c) =>
       '<button data-c="' + esc(c.id) + '"' + (c.id === buddyCourse ? ' class="on"' : "") + ">" +
-      esc(c.name) + " · " + esc(c.edition) + "</button>").join("");
+      "<b>" + esc(c.name) + "</b><small>bản " + esc(c.edition) + "</small></button>").join("");
     seg.querySelectorAll("button").forEach((b) => {
       b.onclick = () => {
         buddyCourse = b.dataset.c;
@@ -511,7 +519,9 @@
   }
 
   function mountBuddy() {
-    QuizGame.mount($("#buddyBody"), {
+    const box = $("#buddyBody");
+    box.dispatchEvent(new CustomEvent("swmn:unmount"));   /* huỷ hẹn giờ của lượt cũ */
+    QuizGame.mount(box, {
       vocab: buddyVocab(buddyCourse, buddyPick),
       label: buddyLabel(buddyCourse, buddyPick),
       lessonId: buddyPick === "__all__" ? "" : buddyPick,
@@ -560,7 +570,7 @@
       ? '<div class="st-rows">' + games.map((x) => {
           const ok = x.total ? Math.round((x.right / x.total) * 100) : 0;
           const det = x.kind === "match"
-            ? x.total + " cặp · " + x.secs + " giây · sai " + x.wrong + " lần"
+            ? x.total + " từ · " + x.secs + " giây · sai " + x.wrong + " lần"
             : "Đúng " + x.right + "/" + x.total + (x.wrong ? " · sai " + x.wrong : "") + (x.xp ? " · +" + x.xp + " XP" : "");
           return '<div class="st-row"><div class="nm">' + esc(Track.kindLabel(x.kind)) +
             "<small>" + esc(det) + " · " + esc(UI.timeAgo(x.t)) + "</small></div>" +
@@ -699,6 +709,7 @@
     Track.stop();
     Store.removeUser(uid);
     me = null;
+    window.CurrentUser = null;
     renderNameScreen();
     showScreen("screenName");
   };

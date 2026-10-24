@@ -4,7 +4,7 @@
    Khác bản web cũ:
      • Không đăng nhập, không mật khẩu, không trang quản trị.
        Học sinh chỉ nhập tên → mọi thứ lưu ngay trong máy (localStorage).
-     • 30 bài học của GTCHSK1 và GTCHSK2 (bản 2.0) nằm sẵn trong app,
+     • 78 bài học: GTCHSK1, GTCHSK2 (bản 2.0), HSK1 (bản 3.0 · 新HSK教程 1), HSK2 (bản 3.0 · 新HSK教程 2) và HSK3 (bản 3.0 · 新HSK教程 3) nằm sẵn trong app,
        không cần tải lên, không cần mạng.
      • Thêm: Ôn tập ngắt quãng (SRS), Tra từ toàn khoá, Mục tiêu ngày + chuỗi ngày.
      • Có nút Xuất / Nhập dữ liệu học tập dạng file .json.
@@ -14,7 +14,10 @@
 window.SWMN_CONFIG = {
   courses: [
     { id: "k1v2", name: "GTCHSK1", edition: "2.0", zh: "标准教程 HSK1", color: "#8B1E28" },
-    { id: "k2v2", name: "GTCHSK2", edition: "2.0", zh: "标准教程 HSK2", color: "#A6712F" }
+    { id: "k2v2", name: "GTCHSK2", edition: "2.0", zh: "标准教程 HSK2", color: "#A6712F" },
+    { id: "k1v3", name: "HSK1", edition: "3.0", zh: "新HSK教程 1", color: "#9C3D54" },
+    { id: "k2v3", name: "HSK2", edition: "3.0", zh: "新HSK教程 2", color: "#6B151F" },
+    { id: "k3v3", name: "HSK3", edition: "3.0", zh: "新HSK教程 3", color: "#7A4A2A" }
   ]
 };
 
@@ -110,8 +113,18 @@ window.SWMN_CONFIG = {
     if (!("serviceWorker" in navigator)) return;
     if (location.protocol === "file:") return;
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch((e) => {
-        console.warn("Service worker chưa đăng ký được:", e);
+      const hadSW = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+        .then((reg) => reg.update())
+        .catch((e) => {
+          console.warn("Service worker chưa đăng ký được:", e);
+        });
+      /* Có bản mới (CACHE mới) → tải lại trang 1 lần để học sinh thấy ngay bài mới */
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadSW || reloaded) return;
+        reloaded = true;
+        location.reload();
       });
     });
   }
@@ -128,7 +141,8 @@ window.SWMN_CONFIG = {
     cur: "swmn.hs.current",
     prog: (uid) => "swmn.hs.prog." + uid,
     srs: (uid) => "swmn.hs.srs." + uid,
-    set: (uid) => "swmn.hs.set." + uid
+    set: (uid) => "swmn.hs.set." + uid,
+    my: (uid) => "swmn.hs.my." + uid
   };
 
   const read = (k, fb) => {
@@ -142,7 +156,11 @@ window.SWMN_CONFIG = {
 
   const DATA = window.SWMN_DATA || {};
   const CSS = window.SWMN_CSS || {};
+  const EXT = window.SWMN_EXT || {};
   const COURSES = window.SWMN_CONFIG.courses;
+
+  /* Trong mỗi bài chỉ giữ lại tab phần thêm "Tổng hợp" (theo yêu cầu của cô Nhung) */
+  const KEEP_EXTRA = /tổng\s*hợp/i;
 
   /* ── Danh mục bài học (dựng 1 lần khi mở app) ─────────────────── */
   let metaCache = null;
@@ -164,12 +182,20 @@ window.SWMN_CONFIG = {
       .sort((a, b) => (a.courseId + "").localeCompare(b.courseId) || a.order - b.order);
     return metaCache;
   }
+  const lessonCache = {};
   function getLesson(id) {
+    if (lessonCache[id]) return lessonCache[id];
     const l = allLessons().find((x) => x.id === id);
     if (!l) return null;
-    /* CSS của các tab "Mục tiêu / Lỗi sai / Tổng hợp" dùng chung một kho
-       để không phải lặp lại 30 lần trong file dữ liệu. */
-    return l.cssId ? Object.assign({}, l, { extraCss: CSS[l.cssId] || "" }) : l;
+    /* CSS của các tab phần thêm dùng chung một kho để không phải lặp lại
+       30 lần trong file dữ liệu. */
+    const out = Object.assign({}, l, {
+      extraCss: l.cssId ? CSS[l.cssId] || "" : "",
+      extra: (l.extra || []).filter((x) => KEEP_EXTRA.test(x.label || "")),
+      vocabExt: EXT[id] || []
+    });
+    lessonCache[id] = out;
+    return out;
   }
 
   /* ── Bảng tra từ vựng toàn khoá ───────────────────────────────── */
@@ -185,19 +211,24 @@ window.SWMN_CONFIG = {
   function vocabAll() {
     if (vocabIndex) return vocabIndex;
     const map = {};
+    const put = (v, l, isExt) => {
+      if (!v.hanzi || !v.meaning) return;
+      const k = v.hanzi;
+      if (!map[k]) {
+        map[k] = {
+          key: k, hanzi: v.hanzi, pinyin: v.pinyin || "", hanviet: v.hanviet || "",
+          pos: v.pos || "", meaning: v.meaning, example: v.example || {},
+          ext: !!isExt, topic: isExt ? v.topic || "" : "", lessons: []
+        };
+      } else if (!isExt) {
+        map[k].ext = false;   /* từ chính thì ưu tiên hơn từ mở rộng */
+      }
+      map[k].lessons.push({ id: l.id, order: l.order, courseId: l.courseId, ext: !!isExt });
+    };
     allLessons().forEach((l) => {
-      (l.vocab || []).forEach((v) => {
-        if (!v.hanzi || !v.meaning) return;
-        const k = v.hanzi;
-        if (!map[k]) {
-          map[k] = {
-            key: k, hanzi: v.hanzi, pinyin: v.pinyin || "", hanviet: v.hanviet || "",
-            pos: v.pos || "", meaning: v.meaning, example: v.example || {},
-            lessons: []
-          };
-        }
-        map[k].lessons.push({ id: l.id, order: l.order, courseId: l.courseId });
-      });
+      (l.vocab || []).forEach((v) => put(v, l, false));
+      (EXT[l.id] || []).forEach((g) =>
+        (g.items || []).forEach((v) => put(Object.assign({ topic: g.topic }, v), l, true)));
     });
     vocabIndex = Object.keys(map).map((k) => {
       const w = map[k];
@@ -260,11 +291,34 @@ window.SWMN_CONFIG = {
   const getSrs = (uid) => read(K.srs(uid), null);
   const saveSrs = (uid, data) => write(K.srs(uid), data);
 
+  /* ── Từ do chính học sinh tự thêm, xếp theo từng bài ──────────── */
+  const myAll = (uid) => read(K.my(uid), {});
+  const myWords = (uid, lessonId) => (myAll(uid) || {})[lessonId] || [];
+  function addMyWord(uid, lessonId, w) {
+    const hanzi = String(w.hanzi || "").trim();
+    const meaning = String(w.meaning || "").trim();
+    if (!hanzi) throw new Error("Bạn nhập chữ Hán của từ nhé.");
+    if (!meaning) throw new Error("Bạn nhập nghĩa tiếng Việt của từ nhé.");
+    const all = myAll(uid);
+    const list = all[lessonId] || (all[lessonId] = []);
+    if (list.some((x) => x.hanzi === hanzi)) throw new Error("Từ này bạn đã thêm rồi.");
+    const rec = { hanzi: hanzi, pinyin: String(w.pinyin || "").trim(), meaning: meaning, t: Date.now() };
+    list.push(rec);
+    write(K.my(uid), all);
+    return rec;
+  }
+  function removeMyWord(uid, lessonId, hanzi) {
+    const all = myAll(uid);
+    all[lessonId] = (all[lessonId] || []).filter((x) => x.hanzi !== hanzi);
+    write(K.my(uid), all);
+  }
+
   window.Store = {
     listLessons, getLesson, vocabAll, noTone,
     users, createUser, renameUser, removeUser, currentUid, setCurrent, getUser,
     getSettings, setSettings,
     getProgress, saveProgress, getSrs, saveSrs,
+    myWords, addMyWord, removeMyWord,
     keys: K,
     friendlyError: (e) => (e && e.message) || "Có lỗi xảy ra, bạn thử lại nhé."
   };
@@ -468,13 +522,14 @@ window.SWMN_CONFIG = {
   const dayNum = (t) => Math.floor((new Date(t || Date.now()).setHours(0, 0, 0, 0)) / DAY);
 
   let uid = null;
-  let db = { cards: {}, new: {}, log: {} };
+  let db = { cards: {}, new: {}, log: {}, extra: {} };
 
   function load(u) {
     uid = u;
-    db = Object.assign({ cards: {}, new: {}, log: {} }, Store.getSrs(u) || {});
+    db = Object.assign({ cards: {}, new: {}, log: {}, extra: {} }, Store.getSrs(u) || {});
     db.cards = db.cards || {};
     db.new = db.new || {};
+    db.extra = db.extra || {};
   }
   const save = () => { if (uid) Store.saveSrs(uid, db); };
 
@@ -493,6 +548,29 @@ window.SWMN_CONFIG = {
     return n;
   }
 
+  /* Đưa một danh sách từ bất kỳ vào kho ôn tập — dùng cho từ vựng mở rộng
+     và cho những từ học sinh tự thêm (những từ này không có trong 30 bài
+     nên phải giữ luôn nội dung từ ngay trong kho). */
+  function enrollWords(list, lessonId) {
+    let n = 0;
+    (list || []).forEach((v) => {
+      if (!v.hanzi || !v.meaning) return;
+      if (!db.cards[v.hanzi]) {
+        db.cards[v.hanzi] = { b: 0, d: dayNum(), seen: 0, lid: lessonId || "" };
+        n++;
+      }
+      if (!db.extra[v.hanzi]) {
+        db.extra[v.hanzi] = {
+          key: v.hanzi, hanzi: v.hanzi, pinyin: v.pinyin || "", hanviet: v.hanviet || "",
+          meaning: v.meaning, example: v.example || {},
+          lessons: lessonId ? [{ id: lessonId }] : []
+        };
+      }
+    });
+    if (n) save(); else save();
+    return n;
+  }
+
   const todayStr = () => new Date().toLocaleDateString("sv-SE");
 
   function newToday() { return db.new[todayStr()] || 0; }
@@ -506,7 +584,7 @@ window.SWMN_CONFIG = {
 
     const due = [], fresh = [];
     Object.keys(db.cards).forEach((k) => {
-      const c = db.cards[k], w = byKey[k];
+      const c = db.cards[k], w = byKey[k] || db.extra[k];
       if (!w) return;
       if (c.seen) { if (c.d <= today) due.push({ w, c }); }
       else fresh.push({ w, c });
@@ -551,9 +629,9 @@ window.SWMN_CONFIG = {
   }
 
   window.SRS = {
-    load, save, enroll, queue, answer, stats,
+    load, save, enroll, enrollWords, queue, answer, stats,
     all: () => db,
-    set(newDb) { db = Object.assign({ cards: {}, new: {}, log: {} }, newDb || {}); save(); },
+    set(newDb) { db = Object.assign({ cards: {}, new: {}, log: {}, extra: {} }, newDb || {}); save(); },
     card: (k) => db.cards[k] || null
   };
 })();

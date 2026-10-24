@@ -5,7 +5,7 @@
      (v1 → v2 → v3…) thì máy học sinh mới nhận bản mới.
    ===================================================================== */
 
-const CACHE = "swmn-hs-v2";
+const CACHE = "swmn-hs-v13";
 
 /* Mọi thứ cần cho app chạy khi không có mạng */
 const FILES = [
@@ -17,6 +17,14 @@ const FILES = [
   "data-css.js",
   "data-hsk1.js",
   "data-hsk2.js",
+  "data-ext-hsk2v2.js",
+  "data-hsk1v3.js",
+  "data-ext-hsk1v3.js",
+  "data-hsk2v3.js",
+  "data-ext-hsk2v3.js",
+  "data-hsk3v3.js",
+  "data-ext-hsk3v3.js",
+  "data-ext.js",
   "quiz-game.js",
   "hw-lib.js",
   "hw-data.js",
@@ -31,7 +39,12 @@ const FILES = [
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => Promise.all(FILES.map((f) => c.add(f).catch(() => null))))
+      /* Tải thẳng từ máy chủ (bỏ qua bộ nhớ đệm trình duyệt / GitHub Pages, thêm ?v=…)
+         để bản mới không bị lẫn file cũ — lỗi khiến bản v9 có máy chỉ hiện tới HSK2. */
+      .then((c) => Promise.all(FILES.map((f) =>
+        fetch(new Request(f + (f.endsWith("/") ? "" : "?v=" + CACHE), { cache: "reload" }))
+          .then((res) => (res && res.ok ? c.put(f, res) : null))
+          .catch(() => null))))
       .then(() => self.skipWaiting())
   );
 });
